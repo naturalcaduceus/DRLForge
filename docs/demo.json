@@ -1,19 +1,19 @@
 {
-  "input_dim": 状态维度,
-  "output_dim": 动作维度,
-  "layer_configs": [
-    {
-      "type":"LSTM|GRU|MLP|Attention",
-      "hidden_dim":整数,
-      "activation":"ReLU/GELU/SiLU/Tanh",
-      "nhead":4 // Attention才需要这个额外参数
-    }
+  "_comment": "演示配置：stacked MLP + PPO，最小可用",
+  "network_stack": [
+    {"type": "mlp", "config": {"in_dim": 24, "hidden_dims": [128, 128], "out_dim": 32, "activation": "GELU"}},
+    {"type": "mlp", "config": {"in_dim": 32, "hidden_dims": [32], "out_dim": 16, "activation": "Tanh"}}
   ],
-  "algorithm":{
-    "name":"DQN|PPO",
-    "params":{"lr":1e-3,"gamma":0.99}
-  },
-  "strategies":[
-    {"name":"TransferLearningStrategy","params":{"freeze_layers":2}}
-  ]
+  "algo": {
+    "name": "dqn",
+    "config": {
+      "device": "cpu",
+      "learning_rate": 1e-3,
+      "gamma": 0.99,
+      "tau": 0.005,
+      "epsilon_start": 1.0,
+      "epsilon_end": 0.05,
+      "epsilon_decay": 0.995
+    }
+  }
 }

@@ -1,26 +1,18 @@
-# 全局配置文件
-
-
+"""全局配置 / 路径常量。"""
 import os
-import sys
 from pathlib import Path
-# 把上级目录加入python搜索路径
-sys.path.append(str(Path(__file__)))
-sys.path.append(str(Path(__file__).parent))
-sys.path.append(str(Path(__file__).parent.parent))
 
-# 将项目根目录添加到模块搜索路径中
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+# 项目根目录（fz_agent 所在的那一层）
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+FZ_AGENT_ROOT = Path(__file__).resolve().parent
 
-import argparse
-import time
-import logging
-parser = argparse.ArgumentParser(description='Multi-task Network')
-# pwdup = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))#当前文件的绝对路径的上一层
-pwdup = os.path.abspath(os.path.dirname(__file__))#当前文件的绝对路径
-parser.add_argument('--propath', default=pwdup+'/', type=str, help='项目根目录')
-parser.add_argument('--propath2', default=pwdup+'/mywork/', type=str, help='项目根目录2')
-parser.add_argument('--outputpath', default=pwdup+'/output/', type=str, help='杂项输出目录')
+# 输出目录
+OUTPUT_DIR = FZ_AGENT_ROOT / "output"
+CHECKPOINT_DIR = FZ_AGENT_ROOT / "checkpoints"
 
-gopt = parser.parse_args()
-# from config import gopt
+# 自动创建
+for d in (OUTPUT_DIR, CHECKPOINT_DIR):
+    d.mkdir(parents=True, exist_ok=True)
+
+# 演示用 JSON 目录
+DOCS_DIR = PROJECT_ROOT / "docs"
