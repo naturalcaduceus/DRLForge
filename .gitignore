@@ -218,3 +218,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+fz_agent/output/agent.ckpt
+output/agent.ckpt

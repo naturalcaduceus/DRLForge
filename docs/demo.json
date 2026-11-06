@@ -1,0 +1,19 @@
+{
+  "input_dim": 状态维度,
+  "output_dim": 动作维度,
+  "layer_configs": [
+    {
+      "type":"LSTM|GRU|MLP|Attention",
+      "hidden_dim":整数,
+      "activation":"ReLU/GELU/SiLU/Tanh",
+      "nhead":4 // Attention才需要这个额外参数
+    }
+  ],
+  "algorithm":{
+    "name":"DQN|PPO",
+    "params":{"lr":1e-3,"gamma":0.99}
+  },
+  "strategies":[
+    {"name":"TransferLearningStrategy","params":{"freeze_layers":2}}
+  ]
+}
