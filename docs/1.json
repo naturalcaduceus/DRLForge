@@ -1,29 +1,20 @@
 {
-  "input_dim": 16,
-  "output_dim": 4,
-  "layer_configs": [
-    {
-      "type": "MLP",
-      "hidden_dim": 64,
-      "activation": "ReLU"
-    },
-    {
-      "type": "LSTM",
-      "hidden_dim": 64,
-      "activation": "ReLU"
-    },
-    {
-      "type": "GRU",
-      "hidden_dim": 64,
-      "activation": "ReLU"
-    }
+  "network_stack": [
+    {"type": "mlp", "config": {"in_dim": 16, "hidden_dims": [64, 64], "out_dim": 32, "activation": "ReLU"}},
+    {"type": "lstm", "config": {"input_size": 32, "hidden_size": 64, "num_layers": 1, "out_dim": 64, "batch_first": true, "bidirectional": false}},
+    {"type": "attention", "config": {"embed_dim": 64, "num_heads": 4}}
   ],
-  "algorithm": {
-    "name": "DQN",
-    "params": {
-      "lr": 0.0001,
-      "gamma": 0.98
+  "algo": {
+    "name": "ppo",
+    "config": {
+      "device": "cpu",
+      "learning_rate": 3e-4,
+      "gamma": 0.99,
+      "gae_lambda": 0.95,
+      "clip_coef": 0.2,
+      "ent_coef": 0.01,
+      "vf_coef": 0.5,
+      "max_grad_norm": 0.5
     }
-  },
-  "strategies": []
+  }
 }
