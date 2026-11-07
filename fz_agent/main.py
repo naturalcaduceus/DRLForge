@@ -10,7 +10,16 @@
     1. 构建简易对抗环境 CombatEnv
     2. 实例化 PPO + ActorCritic
     3. 收集 rollout → 更新 → 评估
-    4. 定期打印训练指标和评估结果
+    4. 全量记录训练过程到 fz_agent/runs/<run_name>_<时间戳>/
+       - config.json       配置快照
+       - train_epoch.csv   每 epoch 训练指标
+       - train_episode.csv 每 episode 回报/长度/结果
+       - eval.csv          评估指标
+       - events.jsonl      结构化事件流
+       - train.log         文本日志
+       - curves.png        训练曲线
+       - tensorboard/      TensorBoard 日志
+       - summary.json      结果汇总
 """
 import os
 import sys
@@ -29,6 +38,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from fz_agent.CombatEnv import CombatEnv
 from fz_agent.rl.ppo import PPO, ActorCritic
+from fz_agent.utils.logger import TrainLogger
 
 
 # ============================================================
@@ -51,18 +61,23 @@ def get_device():
 # Rollout 收集
 # ============================================================
 
-def collect_rollout(env, agent, obs, rollout_steps=1024):
-    """收集一段 rollout，保证 episode 边界正确。"""
+def collect_rollout(env, agent, obs, rollout_steps=1024, env_steps_start=0):
+    """收集一段 rollout，保证 episode 边界正确。
+
+    返回 (buffer, next_obs, episode_records)，
+    episode_records 每项包含 reward / length / result / env_steps。
+    """
     buffer = {
         "obs": [], "actions": [], "log_probs": [],
         "rewards": [], "values": [], "next_values": [],
         "terminated": [], "episode_ends": [],
     }
 
-    episode_rewards = []
+    episode_records = []
     current_episode_reward = 0.0
+    current_episode_steps = 0
 
-    for _ in range(rollout_steps):
+    for i in range(rollout_steps):
         action, log_prob, value = agent.act(obs, deterministic=False)
 
         next_obs, reward, terminated, truncated, info = env.step(action)
@@ -80,14 +95,21 @@ def collect_rollout(env, agent, obs, rollout_steps=1024):
         buffer["episode_ends"].append(float(episode_end))
 
         current_episode_reward += reward
+        current_episode_steps += 1
         obs = next_obs
 
         if episode_end:
-            episode_rewards.append(current_episode_reward)
+            episode_records.append({
+                "reward": current_episode_reward,
+                "length": current_episode_steps,
+                "result": info.get("result", "unknown"),
+                "env_steps": env_steps_start + i + 1,
+            })
             current_episode_reward = 0.0
+            current_episode_steps = 0
             obs, _ = env.reset()
 
-    return buffer, obs, episode_rewards, current_episode_reward
+    return buffer, obs, episode_records
 
 
 # ============================================================
@@ -142,7 +164,14 @@ def save_checkpoint(agent, epoch, path):
 def main():
     set_seed(42)
     device = get_device()
-    print(f"Device: {device}")
+
+    # ------- 0. 训练记录器 -------
+    logger = TrainLogger(
+        run_name="ppo_combat",
+        use_tensorboard=True,
+        plot=True,
+    )
+    logger.info("Device: %s", device)
 
     # ------- 1. 环境 -------
     env = CombatEnv(
@@ -169,19 +198,17 @@ def main():
         action_dim=action_dim,
     )
 
-    agent = PPO(
-        config={
-            "device": str(device),
-            "learning_rate": 3e-4,
-            "gamma": 0.99,
-            "gae_lambda": 0.95,
-            "clip_coef": 0.2,
-            "ent_coef": 0.01,
-            "vf_coef": 0.5,
-            "max_grad_norm": 0.5,
-        },
-        policy_net=model,
-    )
+    ppo_cfg = {
+        "device": str(device),
+        "learning_rate": 3e-4,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "clip_coef": 0.2,
+        "ent_coef": 0.01,
+        "vf_coef": 0.5,
+        "max_grad_norm": 0.5,
+    }
+    agent = PPO(config=ppo_cfg, policy_net=model)
 
     # ------- 3. 训练循环 -------
     total_epochs = 50
@@ -190,13 +217,52 @@ def main():
     minibatch_size = 128
     eval_interval = 5
 
+    logger.log_config({
+        "env": {
+            "name": "CombatEnv",
+            "num_enemies": env.num_enemies,
+            "map_size": env.map_size,
+            "detect_range": env.detect_range,
+            "max_detected": env.max_detected,
+            "max_episode_steps": env.max_episode_steps,
+        },
+        "network": {
+            "type": "ActorCritic",
+            "obs_dim": obs_dim,
+            "hidden_dim": hidden_dim,
+            "action_dim": action_dim,
+        },
+        "algo": {"name": "ppo", "config": ppo_cfg},
+        "train": {
+            "total_epochs": total_epochs,
+            "rollout_steps": rollout_steps,
+            "update_epochs": update_epochs,
+            "minibatch_size": minibatch_size,
+            "eval_interval": eval_interval,
+            "seed": 42,
+        },
+    })
+
     recent_rewards = deque(maxlen=20)
     obs, _ = env.reset()
+    env_steps = 0
 
     for epoch in range(1, total_epochs + 1):
-        rollout, obs, completed_rewards, partial_reward = collect_rollout(
+        rollout, obs, episode_records = collect_rollout(
             env=env, agent=agent, obs=obs, rollout_steps=rollout_steps,
+            env_steps_start=env_steps,
         )
+        env_steps += rollout_steps
+
+        # 记录本段 rollout 中结束的每个 episode
+        for rec in episode_records:
+            logger.log_episode(
+                reward=rec["reward"],
+                length=rec["length"],
+                result=rec["result"],
+                env_steps=rec["env_steps"],
+            )
+            recent_rewards.append(rec["reward"])
 
         train_metrics = agent.update(
             rollout,
@@ -204,26 +270,45 @@ def main():
             minibatch_size=minibatch_size,
         )
 
-        recent_rewards.extend(completed_rewards)
+        avg_train_reward = (
+            float(np.mean(recent_rewards)) if recent_rewards else float("nan")
+        )
+
+        logger.log_epoch(
+            epoch=epoch,
+            metrics=train_metrics,
+            extra={
+                "env_steps": env_steps,
+                "train_reward_mean20": avg_train_reward,
+                "episodes_in_rollout": len(episode_records),
+            },
+        )
 
         if epoch % eval_interval == 0 or epoch == 1:
             eval_metrics = evaluate(eval_env, agent, episodes=5)
+            logger.log_eval(epoch, eval_metrics)
 
-            avg_train_reward = (
-                float(np.mean(recent_rewards)) if recent_rewards else float("nan")
+            logger.info(
+                "[Epoch %03d/%03d] PolicyLoss=%.4f ValueLoss=%.4f "
+                "Entropy=%.4f KL=%.5f ClipFrac=%.3f | "
+                "TrainReward20=%7.2f EvalReward=%7.2f±%.2f "
+                "EvalWinRate=%.1f%% EvalLen=%5.1f",
+                epoch, total_epochs,
+                train_metrics["policy_loss"], train_metrics["value_loss"],
+                train_metrics["entropy"], train_metrics["approx_kl"],
+                train_metrics["clip_fraction"],
+                avg_train_reward,
+                eval_metrics["mean_reward"], eval_metrics["std_reward"],
+                eval_metrics["win_rate"] * 100,
+                eval_metrics["mean_length"],
             )
-
-            print(
-                f"[Epoch {epoch:03d}/{total_epochs}] "
-                f"PolicyLoss={train_metrics['policy_loss']:.4f} "
-                f"ValueLoss={train_metrics['value_loss']:.4f} "
-                f"Entropy={train_metrics['entropy']:.4f} "
-                f"KL={train_metrics['approx_kl']:.5f} "
-                f"ClipFrac={train_metrics['clip_fraction']:.3f} | "
-                f"TrainReward20={avg_train_reward:7.2f} "
-                f"EvalReward={eval_metrics['mean_reward']:7.2f}±{eval_metrics['std_reward']:.2f} "
-                f"EvalWinRate={eval_metrics['win_rate']:.1%} "
-                f"EvalLen={eval_metrics['mean_length']:5.1f}"
+        else:
+            logger.info(
+                "[Epoch %03d/%03d] PolicyLoss=%.4f ValueLoss=%.4f "
+                "Entropy=%.4f TrainReward20=%7.2f",
+                epoch, total_epochs,
+                train_metrics["policy_loss"], train_metrics["value_loss"],
+                train_metrics["entropy"], avg_train_reward,
             )
 
         if epoch % 20 == 0:
@@ -231,12 +316,17 @@ def main():
             ckpt_dir.mkdir(exist_ok=True)
             ckpt_path = str(ckpt_dir / f"combat_ppo_epoch_{epoch}.pth")
             save_checkpoint(agent, epoch, ckpt_path)
-            print(f"  ↳ Checkpoint saved: {ckpt_path}")
+            logger.log_event("checkpoint_saved", epoch=epoch, path=ckpt_path)
+            logger.info("Checkpoint saved: %s", ckpt_path)
 
     ckpt_dir = Path(__file__).resolve().parent / "checkpoints"
     ckpt_dir.mkdir(exist_ok=True)
-    save_checkpoint(agent, total_epochs, str(ckpt_dir / "combat_ppo_final.pth"))
-    print("\n训练完成 ✓")
+    final_path = str(ckpt_dir / "combat_ppo_final.pth")
+    save_checkpoint(agent, total_epochs, final_path)
+    logger.log_event("checkpoint_saved", epoch=total_epochs, path=final_path)
+
+    logger.close(extra_summary={"checkpoint": final_path})
+    print(f"\n训练完成 ✓  记录目录: {logger.run_dir}")
 
 
 if __name__ == "__main__":

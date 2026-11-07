@@ -9,9 +9,11 @@ FZ_AGENT_ROOT = Path(__file__).resolve().parent
 # 输出目录
 OUTPUT_DIR = FZ_AGENT_ROOT / "output"
 CHECKPOINT_DIR = FZ_AGENT_ROOT / "checkpoints"
+# 每次训练的日志 / 记录目录
+RUNS_DIR = FZ_AGENT_ROOT / "runs"
 
 # 自动创建
-for d in (OUTPUT_DIR, CHECKPOINT_DIR):
+for d in (OUTPUT_DIR, CHECKPOINT_DIR, RUNS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 # 演示用 JSON 目录
