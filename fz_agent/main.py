@@ -188,9 +188,7 @@ def main():
     )
 
     # ------- 2.输入输出定义 + 网络 + Agent -------
-    # TODO 这部分就是将json解析并形成网络来处理 
-
-    from fz_agent.rl import *
+    # TODO 这部分就是将json解析并形成网络来处理
 
     obs_dim = 3          # CombatEnv 每个实体 3 维特征
     hidden_dim = 128
