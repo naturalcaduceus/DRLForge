@@ -218,5 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-fz_agent/output/agent.ckpt
-output/agent.ckpt
+
+
+output
+/fz_agent/runs/
+/fz_agent/checkpoints/
+
