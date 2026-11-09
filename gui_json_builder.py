@@ -105,6 +105,16 @@ RL_ALGOS = [
 ]
 
 # 每个算法的参数定义
+DQN_BASE_PARAMS = [
+    ("learning_rate",  float, 1e-3),
+    ("gamma",          float, 0.99),
+    ("tau",            float, 0.005),
+    ("epsilon_start",  float, 1.0),
+    ("epsilon_end",    float, 0.05),
+    ("epsilon_decay",  float, 0.995),
+    ("batch_size",     int,   64),
+]
+
 ALGO_PARAMS = {
     "ppo": [
         ("learning_rate", float, 3e-4),
@@ -115,25 +125,18 @@ ALGO_PARAMS = {
         ("vf_coef",       float, 0.5),
         ("max_grad_norm", float, 0.5),
     ],
-    "dqn": [
-        ("learning_rate",  float, 1e-3),
-        ("gamma",          float, 0.99),
-        ("tau",            float, 0.005),
-        ("epsilon_start",  float, 1.0),
-        ("epsilon_end",    float, 0.05),
-        ("epsilon_decay",  float, 0.995),
-        ("batch_size",     int,   64),
-    ],
-    "ddqn":               ALGO_PARAMS["dqn"],
-    "dueling_dqn":        ALGO_PARAMS["dqn"],
-    "rainbow":            [("learning_rate", float, 1e-4), ("gamma", float, 0.99)],
-    "ddpg":               [("learning_rate", float, 1e-4), ("gamma", float, 0.98)],
-    "sac":                [("learning_rate", float, 3e-4), ("gamma", float, 0.99), ("alpha", float, 0.2)],
-    "td3":                [("learning_rate", float, 1e-4), ("gamma", float, 0.98)],
-    "a2c":                [("learning_rate", float, 3e-4), ("gamma", float, 0.99)],
-    "reinforce":          [("learning_rate", float, 1e-3), ("gamma", float, 0.98)],
-    "iqn":                [("learning_rate", float, 1e-4), ("gamma", float, 0.99)],
+    "dqn":               DQN_BASE_PARAMS,
+    "ddqn":              DQN_BASE_PARAMS,
+    "dueling_dqn":       DQN_BASE_PARAMS,
+    "rainbow":           [("learning_rate", float, 1e-4), ("gamma", float, 0.99)],
+    "ddpg":              [("learning_rate", float, 1e-4), ("gamma", float, 0.98)],
+    "sac":               [("learning_rate", float, 3e-4), ("gamma", float, 0.99), ("alpha", float, 0.2)],
+    "td3":               [("learning_rate", float, 1e-4), ("gamma", float, 0.98)],
+    "a2c":               [("learning_rate", float, 3e-4), ("gamma", float, 0.99)],
+    "reinforce":         [("learning_rate", float, 1e-3), ("gamma", float, 0.98)],
+    "iqn":               [("learning_rate", float, 1e-4), ("gamma", float, 0.99)],
 }
+
 
 # 训练策略（可选，与 stra/strategy_wrapper.py 的 STRATEGY_REGISTRY 对齐）
 TRAIN_STRATEGIES = [

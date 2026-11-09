@@ -187,7 +187,11 @@ def main():
         seed=2026,
     )
 
-    # ------- 2. 网络 + Agent -------
+    # ------- 2.输入输出定义 + 网络 + Agent -------
+    # TODO 这部分就是将json解析并形成网络来处理 
+
+    from fz_agent.rl import *
+
     obs_dim = 3          # CombatEnv 每个实体 3 维特征
     hidden_dim = 128
     action_dim = 3       # CombatEnv: 攻击 / 靠近 / 远离
@@ -210,7 +214,7 @@ def main():
     }
     agent = PPO(config=ppo_cfg, policy_net=model)
 
-    # ------- 3. 训练循环 -------
+    # ------- 3. 训练循环，以及记录 -------
     total_epochs = 50
     rollout_steps = 1024
     update_epochs = 4
