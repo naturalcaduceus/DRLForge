@@ -51,6 +51,13 @@ class TD3(BaseRLAlgo):
         self.hard_update(self.target_q1, self.q1)
         self.hard_update(self.target_q2, self.q2)
 
+    def act(self, obs, deterministic=False):
+        """统一简洁接口：返回连续动作 tensor。"""
+        obs_t = torch.as_tensor(obs, dtype=torch.float32, device=self.device)
+        if obs_t.dim() == 1:
+            obs_t = obs_t.unsqueeze(0)
+        return self.select_action(obs_t, explore=not deterministic)
+
     def select_action(self, obs: torch.Tensor, explore: bool = True) -> torch.Tensor:
         """根据观测值选择连续动作。
         

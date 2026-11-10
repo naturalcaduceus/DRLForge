@@ -40,29 +40,32 @@ class REINFORCE(BaseRLAlgo):
         # 优化器
         self.optimizer = optimizer or torch.optim.Adam(self.policy.parameters(), lr=config.get("lr", 1e-3))
 
-    def select_action(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """根据观测值采样动作。
-        
-        Args:
-            obs: 环境观测值
-            
-        Returns:
-            action: 采样的动作
-            log_prob: 动作的对数概率 (用于后续更新)
-        """
-        obs = obs.to(self.device)
-        
-        # 获取动作 logits
-        action_logits = self.policy(obs)
-        
-        # 构建分类分布
+    def act(self, obs, deterministic=False):
+        """统一简洁接口（无梯度，评估用）。"""
+        a, _ = self._forward(obs, deterministic=deterministic)
+        if isinstance(a, torch.Tensor) and a.dim() == 0:
+            return int(a.item())
+        return a
+
+    def act_with_detail(self, obs, deterministic=False):
+        """返回 (action, log_prob)，带梯度，供轨迹采样用。"""
+        return self._forward(obs, deterministic=deterministic)
+
+    def _forward(self, obs, deterministic=False):
+        obs_t = torch.as_tensor(obs, dtype=torch.float32, device=self.device)
+        if obs_t.dim() == 2:
+            obs_t = obs_t.unsqueeze(0)
+        action_logits = self.policy(obs_t)
         dist = torch.distributions.Categorical(logits=action_logits)
-        
-        # 采样动作
-        action = dist.sample()
+        if deterministic:
+            action = torch.argmax(action_logits, dim=-1)
+        else:
+            action = dist.sample()
         log_prob = dist.log_prob(action)
-        
         return action, log_prob
+
+    def select_action(self, obs: torch.Tensor):
+        return self.act_with_detail(obs)
 
     def update(self, batch: Dict) -> Dict[str, float]:
         """使用一个完整回合的轨迹数据进行 REINFORCE 更新。
@@ -75,8 +78,9 @@ class REINFORCE(BaseRLAlgo):
         Returns:
             包含损失值的字典
         """
-        log_probs = torch.stack(batch['log_probs']).to(self.device)  # (T,)
-        rewards = torch.tensor(batch['rewards'], dtype=torch.float32).to(self.device)  # (T,)
+        lp_raw = batch['log_probs']
+        log_probs = (torch.stack(lp_raw) if isinstance(lp_raw, list) else lp_raw).to(self.device)
+        rewards = torch.tensor(batch['rewards'], dtype=torch.float32).to(self.device)
         
         # 1. 计算每一步的回报 G_t = sum_{k=0}^{T-t} gamma^k * r_{t+k}
         returns = self._compute_returns(rewards)
