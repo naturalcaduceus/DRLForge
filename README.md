@@ -1,6 +1,16 @@
 # DRLForge
 A project try to cover a universal calling framework for neural networks and reinforcement learning as much as possible.
 
+把"智能体"定义成一个四元组，全部走配置驱动：
+```
+agent:
+  backbone: TransformerEncoder   # 来自模型库（8选1）
+  heads: [policy_head, value_head]  # 任务头
+  algorithm: PPO                 # 来自算法库（11选1）
+  training_method:               # 演化训练（6选1或多选）
+    - transfer: { init_from: pretrained.pt, freeze: [embedding] }
+    - self_play: { opponent_pool_size: 20 }
+```
 
 # 离谱的要求
 多种模型库、算法库，支持自助决策模型开发调试和参数导出。
@@ -92,4 +102,4 @@ python rl_json_gui_full.py
 ## 日志
 2026.11.5 确定强化学习与深度学习分别实现的方案。
 2026.11.6 完成模拟环境的构建，实现DRL跑通有效果。
-2026.11.9 框架还有一些填充工作，比如所有强化学习算法实现细节的完成。后续是输入的向量化怎么做一下，自己调优即可，不暴露接口。
+2026.11.9 框架还有一些填充工作，比如所有强化学习算法实现细节的完成。后续是输入的向量化怎么做一下，自己调优即可，不暴露接口。TODO 训练策略还差些东西怎么给原上。
