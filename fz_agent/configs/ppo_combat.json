@@ -1,0 +1,30 @@
+{
+  "_comment": "PPO + CombatEnv 示例。ActorCritic 网络，on-policy 训练。",
+  "meta": {"name": "ppo_combat"},
+  "env": {
+    "type": "combat",
+    "config": {"num_enemies": 3, "max_detected": 10, "max_episode_steps": 300},
+    "action_space_type": "discrete",
+    "action_dim": 3
+  },
+  "networks": {
+    "policy": {
+      "network_stack": [
+        {"type": "mlp", "config": {"in_dim": 3, "hidden_dims": [128, 128], "out_dim": 128, "activation": "ReLU"}}
+      ],
+      "head": "actor_critic"
+    }
+  },
+  "algo": {
+    "name": "ppo",
+    "config": {
+      "device": "cpu", "action_dim": 3,
+      "learning_rate": 3e-4, "gamma": 0.99, "gae_lambda": 0.95,
+      "clip_coef": 0.2, "ent_coef": 0.01, "vf_coef": 0.5, "max_grad_norm": 0.5
+    }
+  },
+  "train": {
+    "seed": 42, "total_epochs": 50, "rollout_steps": 1024,
+    "update_epochs": 4, "minibatch_size": 128, "eval_interval": 5
+  }
+}

@@ -33,6 +33,11 @@ class SAC(BaseRLAlgo):
         self.target_q1.load_state_dict(self.q1.state_dict())
         self.target_q2.load_state_dict(self.q2.state_dict())
 
+    def act(self, obs, deterministic=False):
+        """统一简洁接口：返回连续动作 tensor。"""
+        a, _ = self.select_action(obs, deterministic=deterministic)
+        return a
+
     def select_action(self, obs, deterministic=False):
         # 将观测值转换为张量
         if not isinstance(obs, torch.Tensor):

@@ -1,0 +1,30 @@
+{
+  "_comment": "DQN + CombatEnv 示例。Q 网络 + Target Net + ReplayBuffer。",
+  "meta": {"name": "dqn_combat"},
+  "env": {
+    "type": "combat",
+    "config": {"num_enemies": 2, "max_detected": 8, "max_episode_steps": 300},
+    "action_space_type": "discrete",
+    "action_dim": 3
+  },
+  "networks": {
+    "q_net": {
+      "network_stack": [
+        {"type": "mlp", "config": {"in_dim": 3, "hidden_dims": [64, 64], "out_dim": 64, "activation": "ReLU"}}
+      ],
+      "head": "q"
+    }
+  },
+  "algo": {
+    "name": "dqn",
+    "config": {
+      "device": "cpu", "action_dim": 3,
+      "learning_rate": 1e-3, "gamma": 0.99, "tau": 0.005,
+      "epsilon_start": 1.0, "epsilon_end": 0.05, "epsilon_decay": 0.995, "batch_size": 64
+    }
+  },
+  "train": {
+    "seed": 42, "total_steps": 10000, "capacity": 10000,
+    "warmup_steps": 500, "eval_interval_steps": 2000
+  }
+}

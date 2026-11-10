@@ -27,31 +27,35 @@ class A2C(BaseRLAlgo):
         # 优化器
         self.optimizer = optimizer or torch.optim.Adam(self.policy.parameters(), lr=config.get("lr", 1e-3))
 
-    def select_action(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """根据观测值选择动作。
-        
-        Args:
-            obs: 环境观测值
-            
-        Returns:
-            action: 采样的动作
-            log_prob: 动作的对数概率
-            value: 状态价值 V(s)
-        """
-        # 将观测移至对应设备
-        obs = obs.to(self.device)
-        
-        # 前向传播，获取动作 logits 和状态价值
-        action_logits, value = self.policy(obs)
-        
-        # 构建分类分布
-        dist = torch.distributions.Categorical(logits=action_logits)
-        
-        # 采样动作并计算对数概率
-        action = dist.sample()
+    def act(self, obs, deterministic=False):
+        """统一简洁接口。"""
+        a, _, _ = self._forward(obs, deterministic=deterministic)
+        if isinstance(a, torch.Tensor) and a.dim() == 0:
+            return int(a.item())
+        return a
+
+    def act_with_detail(self, obs, deterministic=False):
+        """返回 (action, log_prob, value)。"""
+        return self._forward(obs, deterministic=deterministic)
+
+    @torch.no_grad()
+    def _forward(self, obs, deterministic=False):
+        obs_t = torch.as_tensor(obs, dtype=torch.float32, device=self.device)
+        if obs_t.dim() == 2:
+            obs_t = obs_t.unsqueeze(0)
+        logits, value = self.policy(obs_t)
+        dist = torch.distributions.Categorical(logits=logits)
+        if deterministic:
+            action = torch.argmax(logits, dim=-1)
+        else:
+            action = dist.sample()
         log_prob = dist.log_prob(action)
-        
-        return action, log_prob, value
+        if obs_t.dim() == 3:
+            return int(action.item()), float(log_prob.item()), float(value.squeeze(-1).item())
+        return action, log_prob, value.squeeze(-1)
+
+    def select_action(self, obs: torch.Tensor):
+        return self.act_with_detail(obs)
 
     def update(self, batch: Dict) -> Dict[str, float]:
         """使用收集到的轨迹数据进行 A2C 更新。

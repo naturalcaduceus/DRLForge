@@ -1,0 +1,25 @@
+{
+  "_comment": "REINFORCE + CombatEnv 示例。蒙特卡洛策略梯度，最基础的 RL 算法。",
+  "meta": {"name": "reinforce_combat"},
+  "env": {
+    "type": "combat",
+    "config": {"num_enemies": 2, "max_detected": 8, "max_episode_steps": 300},
+    "action_space_type": "discrete",
+    "action_dim": 3
+  },
+  "networks": {
+    "policy": {
+      "network_stack": [
+        {"type": "mlp", "config": {"in_dim": 3, "hidden_dims": [64, 64], "out_dim": 64, "activation": "Tanh"}}
+      ],
+      "head": "actor_discrete"
+    }
+  },
+  "algo": {
+    "name": "reinforce",
+    "config": {"device": "cpu", "action_dim": 3, "gamma": 0.99, "entropy_coef": 0.01, "lr": 1e-3}
+  },
+  "train": {
+    "seed": 42, "total_epochs": 30, "episodes_per_epoch": 5, "eval_interval": 5
+  }
+}

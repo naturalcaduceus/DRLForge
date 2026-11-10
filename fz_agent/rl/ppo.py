@@ -89,19 +89,24 @@ class PPO(BaseRLAlgo):
             self.policy.parameters(), lr=lr, eps=1e-5,
         )
 
-    # ------- 对外接口（main.py 直接调用）-------
+    # ------- 统一接口 -------
 
     @torch.no_grad()
     def act(self, obs, deterministic=False):
-        """选择动作。
+        """统一简洁接口：只返回 action（int 或 tensor）。"""
+        a, _, _ = self._forward_with_detail(obs, deterministic=deterministic)
+        if isinstance(a, torch.Tensor) and a.dim() == 0:
+            return int(a.item())
+        return a
 
-        单样本输入 → 返回 (action_int, log_prob_float, value_float)
-        批量输入   → 返回 (action_tensor, log_prob_tensor, value_tensor)
-        """
-        obs_tensor = torch.as_tensor(
-            obs, dtype=torch.float32, device=self.device,
-        )
-        batched = obs_tensor.dim() != 2  # 3D 表示已经带 batch
+    def act_with_detail(self, obs, deterministic=False):
+        """返回 (action, log_prob, value)，带梯度，供 rollout 收集用。"""
+        return self._forward_with_detail(obs, deterministic=deterministic)
+
+    @torch.no_grad()
+    def _forward_with_detail(self, obs, deterministic=False):
+        obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=self.device)
+        batched = obs_tensor.dim() != 2
         if not batched:
             obs_tensor = obs_tensor.unsqueeze(0)
 
