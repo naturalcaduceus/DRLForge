@@ -1,6 +1,19 @@
-"""训练策略包装器（演化训练）。
+"""训练策略包装器(演化训练)。
 
-包裹原始 RL Agent，提供 before/after 钩子用于迁移学习、对抗训练、蒸馏等。
+六类演化训练的落地映射(这是你没想好的部分)
+核心思路：每种方法 = 对 Trainer 或 Env 的一层包装(wrapper),挂在训练流水线的一个固定钩子上：
+训练方法 	实现位置 	本质 
+迁移学习	Trainer 初始化钩子	加载预训练权重 + 层冻结配置,就是初始化参数
+对抗训练	Env 包装器	self-play / 对手池(league),轮流把历史 checkpoint 塞进环境当对手
+增量持续训练	持久化钩子	checkpoint + replay buffer 落盘,断点续训；可选渐进式网络扩层
+模型蒸馏	Loss 钩子	teacher 模型 forward 出 soft label,加 KL 辅助损失
+多任务联合	网络/损失侧	共享 backbone + 多任务头,各头 loss 加权求和
+集成投票	推理侧封装	N 个 agent 各自推理,动作空间上投票/置信度融合
+
+也就是说训练流水线预留四个钩子：init_hook(迁移)、env_hook(对抗)、loss_hook(蒸馏、多任务)、
+inference_hook(集成),六个要求全部对上号,而且后续再加新方法只是加一个 wrapper 类。
+
+包裹原始 RL Agent,提供 before/after 钩子用于迁移学习、对抗训练、蒸馏等。
 """
 import torch
 import torch.nn as nn

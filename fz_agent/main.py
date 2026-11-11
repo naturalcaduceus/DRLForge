@@ -28,10 +28,20 @@ _PROJECT_ROOT = _THIS_DIR.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from fz_agent.CombatEnv import CombatEnv
+from fz_agent.env.CombatEnv import CombatEnvProxy as CombatEnv
 from fz_agent.dl.factory import build_rl_from_json_config, load_json_config
 from fz_agent.rl.dqn import ReplayBuffer
 from fz_agent.utils.logger import TrainLogger
+
+
+# ------- 2.输入输出定义 + 网络 + Agent -------
+import fz_agent.rl as rl
+import fz_agent.dl.blocks as dl
+import fz_agent.stra as stra
+
+
+
+
 
 
 # ============================================================
@@ -284,6 +294,7 @@ def train_discrete_ppo_like(env, eval_env, agent, cfg, logger, algo_name):
 
 
 def train_reinforce(env, eval_env, agent, cfg, logger):
+    """蒙特卡罗"""
     algo_cfg = cfg["algo"]["config"]
     train_cfg = cfg.get("train", {})
     total_epochs = train_cfg.get("total_epochs", 50)
@@ -394,7 +405,7 @@ def train_dqn_like(env, eval_env, agent, cfg, logger, algo_name):
     save_checkpoint(agent, total_steps, str(_THIS_DIR / "checkpoints" / f"{algo_name}_final.pth"))
     logger.close(extra_summary={"algo": algo_name})
 
-
+# TODO 连续空间的强化学习怎么圆
 def train_continuous(env, eval_env, agent, cfg, logger, algo_name):
     """DDPG / TD3 / SAC。预留：环境需要连续动作空间。"""
     logger.info("[%s] 连续动作训练循环需要连续动作环境，暂未接入 CombatEnv", algo_name.upper())
@@ -430,7 +441,8 @@ def _log_train_info(logger, algo, epoch, total, metrics, em, avg):
 # 主入口
 # ============================================================
 
-def main():
+def mainDL_train():
+    # 这部分就是将json解析并形成网络来处理 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", "-c", type=str, default=None,
                         help="JSON 配置路径，默认 fz_agent/configs/ppo_combat.json")
@@ -451,6 +463,8 @@ def main():
         print("未找到默认 JSON 配置，请指定 --config")
         return
 
+
+    # 获取json内容并解析
     cfg = load_json_config(str(config_path))
     print(f"Loaded config: {config_path}")
 
@@ -460,6 +474,57 @@ def main():
     set_seed(seed)
     device = get_device(cfg.get("device", "cuda"))
 
+    # TODO 深度学习--根据组合的网络、数据集来训练
+    pass
+
+
+# TODO
+def mainDL_exp():
+
+    # 读取模型
+
+    # 准备环境
+
+    # 输入循环，并返回输出
+    pass
+
+
+
+
+def mainRL_train():
+    # 这部分就是将json解析并形成网络来处理 
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", "-c", type=str, default=None,
+                        help="JSON 配置路径，默认 fz_agent/configs/ppo_combat.json")
+    args = parser.parse_args()
+
+    default_paths = [
+        _THIS_DIR / "configs" / "ppo_combat.json",
+        _PROJECT_ROOT / "docs" / "1.json",
+    ]
+    config_path = args.config
+    if config_path is None:
+        for p in default_paths:
+            if p.exists():
+                config_path = p
+                break
+
+    if config_path is None or not Path(config_path).exists():
+        print("未找到默认 JSON 配置，请指定 --config")
+        return
+
+    # 获取json内容并解析
+    cfg = load_json_config(str(config_path))
+    print(f"Loaded config: {config_path}")
+
+    env_cfg = cfg.get("env", {})
+    train_cfg = cfg.get("train", {})
+    seed = train_cfg.get("seed", 42)
+    set_seed(seed)
+    device = get_device(cfg.get("device", "cuda"))
+
+
+    # 创建环境（此处是与仿真引擎的数据交互的初始化）
     env = make_env(env_cfg, seed=seed)
     eval_env = make_env(env_cfg, seed=seed + 1000)
 
@@ -470,7 +535,8 @@ def main():
     logger = TrainLogger(run_name=run_name, use_tensorboard=True, plot=True)
     logger.info("Device: %s  Algo: %s  roles=%s", device, algo_name, list(roles.keys()))
     logger.log_config(cfg)
-
+ 
+    # 强化学习--根据不同方式来训练
     discrete_on_policy = {"ppo", "a2c"}
     mc = {"reinforce"}
     discrete_off_policy = {"dqn", "ddqn", "dueling_dqn", "rainbow"}
@@ -492,5 +558,19 @@ def main():
         logger.close()
 
 
+# TODO
+def mainRL_exp():
+    
+    # 读取模型
+
+    # 准备环境
+
+    # 输入循环，并返回输出
+
+    pass
+
+
+
+
 if __name__ == "__main__":
-    main()
+    pass
