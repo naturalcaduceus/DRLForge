@@ -61,8 +61,118 @@ def build_backbone_from_stack(stack_spec: list) -> nn.Module:
     return nn.Sequential(*modules) if modules else nn.Identity()
 
 
+class GraphBackbone(nn.Module):
+    """非堆叠式（DAG / 分支 / 残差连接）网络。
+
+    JSON:
+    {
+      "input": {"dim": 3, "entity_set": true},
+      "output": "out",
+      "nodes": [
+        {"id": "a", "type": "mlp", "config": {...}},
+        {"id": "b", "type": "mlp", "config": {...}, "inputs": ["a"]},
+        {"id": "add1", "type": "add", "inputs": ["a", "b"]},
+        {"id": "out", "type": "mlp", "config": {...}, "inputs": ["add1"]}
+      ]
+    }
+
+    合并节点 type ∈ {add, concat, mul}，其余 type 走 NET_REGISTRY。
+    inputs 缺省时连接图输入 "__input__"。
+    """
+
+    INPUT_KEY = "__input__"
+    MERGE_TYPES = {"add", "concat", "mul"}
+
+    def __init__(self, graph_spec: dict):
+        super().__init__()
+        nodes = graph_spec.get("nodes", [])
+        if not nodes:
+            raise ValueError("network_graph.nodes 不能为空")
+
+        modules, merge_ops, inputs, declared = {}, {}, {}, []
+        for spec in nodes:
+            nid = spec["id"]
+            ntype = str(spec["type"]).lower()
+            declared.append(nid)
+            inputs[nid] = list(spec.get("inputs", [self.INPUT_KEY]))
+            if ntype in self.MERGE_TYPES:
+                merge_ops[nid] = ntype
+            else:
+                modules[nid] = build_network_by_type(spec["type"], spec.get("config", {}))
+
+        self.output = graph_spec.get("output", declared[-1])
+        if self.output not in declared:
+            raise ValueError(f"network_graph.output '{self.output}' 不在 nodes 中")
+
+        self.nodes = nn.ModuleDict(modules)
+        self.merge_ops = merge_ops
+        self.edges = inputs
+        self.order = self._topo_order(declared)
+        self.input_dim = int(graph_spec.get("input", {}).get("dim", 3))
+        self.entity_set = bool(graph_spec.get("input", {}).get("entity_set", False))
+
+    def _topo_order(self, declared):
+        known = set(declared)
+        order, state = [], {}
+
+        def visit(nid):
+            if state.get(nid) == 2:
+                return
+            if state.get(nid) == 1:
+                raise ValueError(f"network_graph 存在环：{nid}")
+            state[nid] = 1
+            for src in self.edges[nid]:
+                if src != self.INPUT_KEY:
+                    if src not in known:
+                        raise ValueError(f"节点 {nid} 引用了不存在的输入 {src}")
+                    visit(src)
+            state[nid] = 2
+            order.append(nid)
+
+        for nid in declared:
+            visit(nid)
+        return order
+
+    def forward(self, x):
+        memo = {self.INPUT_KEY: x}
+        for nid in self.order:
+            srcs = [memo[s] for s in self.edges[nid]]
+            if nid in self.merge_ops:
+                op = self.merge_ops[nid]
+                if op == "add":
+                    out = srcs[0]
+                    for t in srcs[1:]:
+                        out = out + t
+                elif op == "mul":
+                    out = srcs[0]
+                    for t in srcs[1:]:
+                        out = out * t
+                else:  # concat
+                    out = torch.cat(srcs, dim=-1)
+            else:
+                out = self.nodes[nid](srcs[0] if len(srcs) == 1 else srcs)
+            memo[nid] = out
+        return memo[self.output]
+
+
 def build_backbone_from_graph(graph_spec: dict) -> nn.Module:
-    raise NotImplementedError("network_graph（DAG/分支）尚未实现，留好 JSON 接口")
+    return GraphBackbone(graph_spec)
+
+
+def _infer_out_dim_graph(backbone: nn.Module, graph_spec: dict) -> int:
+    dim = int(graph_spec.get("input", {}).get("dim", 3))
+    entity_set = bool(graph_spec.get("input", {}).get("entity_set", False))
+    dummy = torch.randn(2, 4, dim) if entity_set else torch.randn(2, dim)
+    backbone.eval()
+    with torch.no_grad():
+        out = backbone(dummy)
+    if out.dim() == 2:
+        return out.shape[1]
+    if out.dim() == 3:
+        return out.shape[-1]
+    if out.dim() == 4:
+        return out.shape[1] * out.shape[2] * out.shape[3]
+    raise RuntimeError(f"无法推断 graph backbone 输出维度，out.shape={out.shape}")
 
 
 def _infer_out_dim(backbone: nn.Module, stack_spec: list) -> int:
@@ -236,7 +346,7 @@ def _make_critic_q_continuous_head(backbone, feat_dim, action_dim):
                 out = out.mean(1)
             elif out.dim() == 4:
                 out = out.flatten(1)
-            return self.head(torch.cat([out, action], dim=-1))
+            return self.head(torch.cat([out, action], dim=-1)).squeeze(-1)
     return _Net(backbone, feat_dim, action_dim)
 
 
@@ -286,15 +396,25 @@ def _build_role_networks(networks_cfg: dict, algo_name: str,
             )
 
         role_cfg = networks_cfg[role_name]
-        # 支持两种写法：直接给 list 或 {"network_stack": [...], "head": "..."}
+        # 支持三种写法：
+        #   1) 直接给 list（等价于 network_stack）
+        #   2) {"network_stack": [...], "head": "..."}
+        #   3) {"network_graph": {...}, "head": "..."}  ← 非堆叠式
         if isinstance(role_cfg, list):
-            stack, head_override = role_cfg, expected_head
+            stack, graph, head_override = role_cfg, None, expected_head
         else:
-            stack = role_cfg.get("network_stack", [])
+            stack = role_cfg.get("network_stack")
+            graph = role_cfg.get("network_graph")
             head_override = role_cfg.get("head", expected_head)
 
-        backbone = build_backbone_from_stack(stack)
-        feat_dim = _infer_out_dim(backbone, stack)
+        if graph:
+            backbone = build_backbone_from_graph(graph)
+            feat_dim = _infer_out_dim_graph(backbone, graph)
+        else:
+            stack = stack or []
+            backbone = build_backbone_from_stack(stack)
+            feat_dim = _infer_out_dim(backbone, stack)
+
         factory = HEAD_FACTORIES.get(head_override)
         if factory is None:
             raise ValueError(f"未知 head 类型: {head_override}，可用: {list(HEAD_FACTORIES.keys())}")

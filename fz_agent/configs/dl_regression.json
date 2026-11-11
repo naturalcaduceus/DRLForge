@@ -1,0 +1,19 @@
+{
+  "_comment": "深度学习（监督回归）示例：网络 + 数据集 → 权重。数据集为 .npz（键 X / Y）。",
+  "meta": {"name": "dl_demo"},
+  "device": "cpu",
+  "io": {
+    "obs": {"shape": [4], "dim": 4, "entity_set": false, "names": ["f0", "f1", "f2", "f3"]},
+    "action": {"space_type": "continuous", "dim": 1, "low": -1.0, "high": 1.0}
+  },
+  "network_stack": [
+    {"type": "mlp", "config": {"in_dim": 4, "hidden_dims": [64, 64], "out_dim": 32, "activation": "ReLU"}}
+  ],
+  "data": {
+    "path": "fz_agent/data/dl_demo.npz",
+    "task": "regression",
+    "batch_size": 64,
+    "val_split": 0.1
+  },
+  "train": {"seed": 42, "epochs": 30, "lr": 1e-3}
+}

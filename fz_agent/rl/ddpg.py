@@ -46,7 +46,7 @@ class DDPG(BaseRLAlgo):
     def act(self, obs, deterministic=False):
         """统一简洁接口：返回连续动作 tensor。"""
         obs_t = torch.as_tensor(obs, dtype=torch.float32, device=self.device)
-        if obs_t.dim() == 1:
+        if obs_t.dim() <= 2:
             obs_t = obs_t.unsqueeze(0)
         return self.select_action(obs_t, explore=not deterministic)
 

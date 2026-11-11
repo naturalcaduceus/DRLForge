@@ -9,10 +9,11 @@ from .base import BaseRLAlgo
 class SAC(BaseRLAlgo):
     def __init__(self, config, actor, q1, q2, target_q1, target_q2):
         super().__init__(config, actor)
-        self.q1 = q1
-        self.q2 = q2
-        self.target_q1 = target_q1
-        self.target_q2 = target_q2
+        self.actor = self.policy
+        self.q1 = q1.to(self.device)
+        self.q2 = q2.to(self.device)
+        self.target_q1 = target_q1.to(self.device)
+        self.target_q2 = target_q2.to(self.device)
         
         # 假设从config中获取超参数
         self.gamma = config.get("gamma", 0.99)
@@ -70,9 +71,9 @@ class SAC(BaseRLAlgo):
         # 将数据转移到设备上
         obs = torch.FloatTensor(obs).to(self.device)
         actions = torch.FloatTensor(actions).to(self.device)
-        rewards = torch.FloatTensor(rewards).unsqueeze(-1).to(self.device)
+        rewards = torch.FloatTensor(rewards).to(self.device)
         next_obs = torch.FloatTensor(next_obs).to(self.device)
-        dones = torch.FloatTensor(dones).unsqueeze(-1).to(self.device)
+        dones = torch.FloatTensor(dones).to(self.device)
         
         alpha = self.log_alpha.exp()
 
@@ -87,7 +88,7 @@ class SAC(BaseRLAlgo):
             next_actions = next_y_t
             
             next_log_prob = next_normal.log_prob(next_x_t) - torch.log(1 - next_y_t.pow(2) + 1e-6)
-            next_log_prob = next_log_prob.sum(dim=-1, keepdim=True)
+            next_log_prob = next_log_prob.sum(dim=-1)
             
             # 计算目标Q值 (Target Q = r + gamma * (min(Q1, Q2) - alpha * log_prob))
             q1_target = self.target_q1(next_obs, next_actions)
@@ -124,7 +125,7 @@ class SAC(BaseRLAlgo):
         reparam_actions = y_t
         
         log_prob = normal.log_prob(x_t) - torch.log(1 - y_t.pow(2) + 1e-6)
-        log_prob = log_prob.sum(dim=-1, keepdim=True)
+        log_prob = log_prob.sum(dim=-1)
         
         # 计算Actor的目标值 (期望最大化 Q - alpha * log_prob，因此loss取负)
         q1_reparam = self.q1(obs, reparam_actions)

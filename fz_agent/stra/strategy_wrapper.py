@@ -15,6 +15,9 @@ inference_hook(集成),六个要求全部对上号,而且后续再加新方法�
 
 包裹原始 RL Agent,提供 before/after 钩子用于迁移学习、对抗训练、蒸馏等。
 """
+import os
+
+import numpy as np
 import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
@@ -28,7 +31,7 @@ class BaseTrainStrategy(ABC):
 
     def __init__(self, rl_agent: BaseRLAlgo, strategy_cfg: dict):
         self.agent = rl_agent
-        self.strategy_cfg = strategy_cfg
+        self.strategy_cfg = strategy_cfg or {}
 
     @abstractmethod
     def before_train_step(self, *args, **kwargs):
@@ -38,13 +41,23 @@ class BaseTrainStrategy(ABC):
     def after_train_step(self, *args, **kwargs):
         pass
 
+    def act(self, obs, deterministic=False):
+        return self.agent.act(obs, deterministic=deterministic)
+
+    def act_with_detail(self, *args, **kwargs):
+        return self.agent.act_with_detail(*args, **kwargs)
+
+    def get_value(self, obs):
+        return self.agent.get_value(obs)
+
     def select_action(self, obs):
         return self.agent.select_action(obs)
 
     def update(self, batch):
         self.before_train_step(batch=batch)
-        self.agent.update(batch)
+        result = self.agent.update(batch)
         self.after_train_step(batch=batch)
+        return result
 
     # 透传常用属性
     @property
@@ -56,25 +69,97 @@ class BaseTrainStrategy(ABC):
         return self.agent.policy
 
 
-# ------- 具体策略（骨架）-------
+# ------- 具体策略 -------
 
 class TransferLearningWrapper(BaseTrainStrategy):
-    """迁移学习：加载预训练权重、冻结部分层。"""
+    """迁移学习：加载预训练权重、冻结部分层。
+
+    配置：
+        strategy.config.pretrained  预训练权重路径（.pt 检查点或构建体目录）
+        strategy.config.freeze      True=冻结骨干；或整数=冻结前 n 个子模块
+    """
+
+    def __init__(self, rl_agent, strategy_cfg):
+        super().__init__(rl_agent, strategy_cfg)
+        self.pretrained = self.strategy_cfg.get("pretrained")
+        self.freeze = self.strategy_cfg.get("freeze", False)
+        self._initialized = False
+
+    def _resolve_weights(self, path: str):
+        if os.path.isdir(path):
+            from ..construct import AgentBundle
+            return AgentBundle.load(path).build_agent().policy.state_dict()
+        ckpt = torch.load(path, map_location="cpu")
+        return ckpt.get("policy", ckpt)
+
+    def _apply_init_hook(self):
+        if self._initialized:
+            return
+        self._initialized = True
+
+        if self.pretrained:
+            state = self._resolve_weights(self.pretrained)
+            missing, unexpected = self.agent.policy.load_state_dict(state, strict=False)
+            print(f"[transfer] 已加载预训练权重 {self.pretrained} "
+                  f"(missing={len(missing)}, unexpected={len(unexpected)})")
+
+        if self.freeze:
+            self._freeze()
+
+    def _freeze(self):
+        policy = self.agent.policy
+        frozen = 0
+        backbone = getattr(policy, "backbone", None)
+        if isinstance(backbone, nn.Module):
+            for p in backbone.parameters():
+                p.requires_grad = False
+                frozen += 1
+        else:
+            n = int(self.freeze) if isinstance(self.freeze, int) and not isinstance(self.freeze, bool) else 1
+            for child in list(policy.children())[:n]:
+                for p in child.parameters():
+                    p.requires_grad = False
+                    frozen += 1
+        print(f"[transfer] 已冻结 {frozen} 个参数张量")
 
     def before_train_step(self, *args, **kwargs):
-        # TODO: 加载预训练权重、冻结 backbone 前 n 层
-        pass
+        self._apply_init_hook()
 
     def after_train_step(self, *args, **kwargs):
         pass
 
 
 class AdversarialTrainWrapper(BaseTrainStrategy):
-    """对抗训练：在观测上注入对抗扰动。"""
+    """对抗训练：在 batch 观测上注入对抗扰动（FGSM 符号噪声）。
+
+    配置：
+        strategy.config.epsilon  扰动幅度，默认 0.01
+        strategy.config.clip     观测裁剪范围，默认 None
+    """
+
+    def __init__(self, rl_agent, strategy_cfg):
+        super().__init__(rl_agent, strategy_cfg)
+        self.epsilon = float(self.strategy_cfg.get("epsilon", 0.01))
+        self.clip = self.strategy_cfg.get("clip")
+
+    def _perturb(self, obs):
+        if torch.is_tensor(obs):
+            noise = torch.randn_like(obs).sign() * self.epsilon
+            out = obs + noise
+            if self.clip is not None:
+                out = out.clamp(-float(self.clip), float(self.clip))
+            return out
+        arr = np.asarray(obs, dtype=np.float32)
+        noise = np.sign(np.random.randn(*arr.shape)).astype(np.float32) * self.epsilon
+        out = arr + noise
+        if self.clip is not None:
+            out = np.clip(out, -float(self.clip), float(self.clip))
+        return out
 
     def before_train_step(self, *args, **kwargs):
-        # TODO: 生成对抗样本并替换 batch 观测
-        pass
+        batch = kwargs.get("batch")
+        if isinstance(batch, dict) and "obs" in batch:
+            batch["obs"] = self._perturb(batch["obs"])
 
     def after_train_step(self, *args, **kwargs):
         pass
@@ -96,8 +181,8 @@ class DistillLightWrapper(BaseTrainStrategy):
     def __init__(self, rl_agent, strategy_cfg, teacher_model: Optional[nn.Module] = None):
         super().__init__(rl_agent, strategy_cfg)
         self.teacher = teacher_model
-        self.temp = strategy_cfg.get("temperature", 2.0)
-        self.alpha = strategy_cfg.get("alpha", 0.7)
+        self.temp = self.strategy_cfg.get("temperature", 2.0)
+        self.alpha = self.strategy_cfg.get("alpha", 0.7)
 
     def before_train_step(self, *args, **kwargs):
         pass
@@ -123,13 +208,16 @@ class EnsembleVoteWrapper(BaseTrainStrategy):
         super().__init__(rl_agent, strategy_cfg)
         self.ensemble_agents = agent_list or []
 
-    def select_action(self, obs):
-        acts = [a.select_action(obs) for a in self.ensemble_agents]
-        # 投票：取众数
-        if acts and isinstance(acts[0], (int, float)):
+    def act(self, obs, deterministic=False):
+        acts = [a.act(obs, deterministic=deterministic) for a in self.ensemble_agents]
+        acts = [_scalar(a) for a in acts]
+        if acts and all(isinstance(a, int) for a in acts):
             from collections import Counter
-            return Counter(int(a) for a in acts).most_common(1)[0][0]
-        return self.agent.select_action(obs)
+            return Counter(acts).most_common(1)[0][0]
+        return self.agent.act(obs, deterministic=deterministic)
+
+    def select_action(self, obs):
+        return self.act(obs, deterministic=False)
 
     def before_train_step(self, *args, **kwargs):
         pass
@@ -146,6 +234,17 @@ STRATEGY_REGISTRY = {
     "multitask_joint": MultiTaskJointWrapper,
     "ensemble_vote": EnsembleVoteWrapper,
 }
+
+
+def _scalar(a):
+    """把动作归一成 int（标量）或保持原样。"""
+    if isinstance(a, torch.Tensor):
+        return int(a.item()) if a.numel() == 1 else a.flatten().tolist()
+    if hasattr(a, "numel") and getattr(a, "numel", lambda: 0)() == 1:
+        return int(a.item())
+    if isinstance(a, (np.integer,)):
+        return int(a)
+    return a
 
 
 def wrap_agent_with_strategy(strategy_name: str, agent: BaseRLAlgo,

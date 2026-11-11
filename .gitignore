@@ -223,4 +223,10 @@ __marimo__/
 output
 /fz_agent/runs/
 /fz_agent/checkpoints/
+/fz_agent/bundles/
+/fz_agent/output/
+
+# 项目自己的环境包（勿被上面的 Python 虚拟环境规则 env/ 误伤）
+!fz_agent/env/
+!fz_agent/env/**/*.py
 

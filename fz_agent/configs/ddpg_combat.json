@@ -1,0 +1,39 @@
+{
+  "_comment": "DDPG + 连续动作 CombatEnv。环境将连续动作映射为战斗语义，验证连续动作训练流程。",
+  "meta": {"name": "ddpg_combat"},
+  "env": {
+    "type": "combat",
+    "config": {"num_enemies": 2, "max_detected": 8, "max_episode_steps": 300},
+    "action_space_type": "continuous",
+    "action_dim": 3,
+    "io": {
+      "obs": {"shape": [8, 3], "dim": 3, "entity_set": true, "names": ["dx", "dy", "hp_ratio"]},
+      "action": {"space_type": "continuous", "dim": 3, "low": -1.0, "high": 1.0}
+    }
+  },
+  "networks": {
+    "actor": {
+      "network_stack": [
+        {"type": "mlp", "config": {"in_dim": 3, "hidden_dims": [128, 128], "out_dim": 128, "activation": "ReLU"}}
+      ],
+      "head": "actor_continuous"
+    },
+    "critic": {
+      "network_stack": [
+        {"type": "mlp", "config": {"in_dim": 3, "hidden_dims": [128, 128], "out_dim": 128, "activation": "ReLU"}}
+      ],
+      "head": "critic_q_continuous"
+    }
+  },
+  "algo": {
+    "name": "ddpg",
+    "config": {
+      "device": "cpu", "action_dim": 3,
+      "learning_rate": 1e-3, "gamma": 0.99, "tau": 0.005, "batch_size": 64
+    }
+  },
+  "train": {
+    "seed": 42, "total_steps": 6000, "warmup_steps": 500,
+    "eval_interval_steps": 1000, "capacity": 50000
+  }
+}

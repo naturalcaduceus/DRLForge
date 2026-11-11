@@ -1,0 +1,41 @@
+{
+  "_comment": "非堆叠式（DAG/残差）网络示例：enc 与 res 相加后再接输出层。用于验证 network_graph 接口。",
+  "meta": {"name": "ppo_graph"},
+  "env": {
+    "type": "combat",
+    "config": {"num_enemies": 2, "max_detected": 8, "max_episode_steps": 200},
+    "action_space_type": "discrete",
+    "action_dim": 3,
+    "io": {
+      "obs": {"shape": [8, 3], "dim": 3, "entity_set": true, "names": ["dx", "dy", "hp_ratio"]},
+      "action": {"space_type": "discrete", "dim": 3}
+    }
+  },
+  "networks": {
+    "policy": {
+      "network_graph": {
+        "input": {"dim": 3, "entity_set": true},
+        "output": "out",
+        "nodes": [
+          {"id": "enc", "type": "mlp", "config": {"in_dim": 3, "hidden_dims": [64], "out_dim": 64, "activation": "ReLU"}},
+          {"id": "res", "type": "mlp", "config": {"in_dim": 64, "hidden_dims": [64], "out_dim": 64, "activation": "ReLU"}, "inputs": ["enc"]},
+          {"id": "merge", "type": "add", "inputs": ["enc", "res"]},
+          {"id": "out", "type": "mlp", "config": {"in_dim": 64, "hidden_dims": [64], "out_dim": 64, "activation": "ReLU"}, "inputs": ["merge"]}
+        ]
+      },
+      "head": "actor_critic"
+    }
+  },
+  "algo": {
+    "name": "ppo",
+    "config": {
+      "device": "cpu", "action_dim": 3,
+      "learning_rate": 3e-4, "gamma": 0.99, "gae_lambda": 0.95,
+      "clip_coef": 0.2, "ent_coef": 0.01, "vf_coef": 0.5, "max_grad_norm": 0.5
+    }
+  },
+  "train": {
+    "seed": 42, "total_epochs": 4, "rollout_steps": 512,
+    "update_epochs": 3, "minibatch_size": 128, "eval_interval": 2
+  }
+}

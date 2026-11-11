@@ -99,9 +99,92 @@ python rl_json_gui_full.py
 2. 强化学习方法对特定神经网络是有适配的，并不能随便设置神经网络来进行强化学习。
 
 
+## 输入输出契约与多模型接入
+
+### 1. I/O 契约（训练与推理共用）
+`fz_agent/env/base.py` 用 `IOSpec = (ObsSpec, ActionSpec)` 描述一个智能体看到什么、能做什么：
+
+```json
+"io": {
+  "obs":    {"shape": [10, 3], "dim": 3, "entity_set": true,
+             "names": ["dx", "dy", "hp_ratio"], "normalize": true, "clip": null},
+  "action": {"space_type": "discrete", "dim": 3, "low": -1.0, "high": 1.0}
+}
+```
+- `space_type` 决定算法族：`discrete` → PPO/A2C/REINFORCE/DQN 系；`continuous` → DDPG/TD3/SAC。
+- 环境把 `io_spec` 交给 `main.make_env`，网络输入维度、动作头维度都由它推导，不再硬编码。
+- 同一份 `io` 段落既写在训练配置里，也随构建体一起导出，保证"训练时怎么喂，部署时就怎么喂"。
+
+### 2. 构建体（AgentBundle）：一个可独立加载/部署的模型单元
+一个构建体 = **输入输出规格 + 网络结构/算法配置 + 权重文件**，落盘为一个目录：
+
+```
+bundles/<bundle_id>/
+├── bundle.json    # {"version", "io_spec", "config", "metadata", "kind"}
+└── weights.pt     # 各网络（policy/critic/q1/q2/target_*）的 state_dict
+```
+
+```python
+from fz_agent.construct import AgentBundle, ModelPool, SelfPlayEnv
+
+bundle = AgentBundle.from_agent(agent, cfg, env.io_spec, bundle_id="ppo_v3")
+bundle.save("fz_agent/bundles/ppo_v3")
+
+b = AgentBundle.load("fz_agent/bundles/ppo_v3")   # 构建网络 + 恢复权重
+action = b.predict(obs, deterministic=True)        # 推理，返回 JSON 兼容值
+```
+`bundle.json` 里保存了完整 `config`，所以加载端不需要再传配置文件；`io_spec` 让部署端可校验输入 shape。
+
+### 3. 多构建体同时接入（这是 2026.11.11 TODO 的答案）
+对抗训练/自博弈/联赛里，同一时刻要跑"我方 N 个版本 + 对手 M 个版本"，不能再写死一个全局模型。
+
+`ModelPool` 按 `bundle_id` 同时持有多个构建体，各自独立的网络、权重、动作空间：
+
+```python
+pool = ModelPool(device="cpu")
+pool.load_dir("fz_agent/bundles")     # 递归扫描所有含 bundle.json 的目录
+pool.ids()                            # ['ppo_v3', 'ddpg_v2', ...]
+
+env = SelfPlayEnv(CombatEnv(), pool, opponent_id="ddpg_v2")
+env.set_opponent("ppo_v3")            # 训练中途换对手，无需重建环境
+for _ in range(steps):
+    obs = env.reset()
+    next_obs, reward, done, info = env.step(policy(obs))
+```
+关键点：
+- 对手策略是 `lambda obs: pool.predict(opponent_id, obs)`，对手自己的 `io_spec` 与动作空间在池内独立解析，主环境只负责把对手动作转成战斗语义（`CombatEnv._coerce_team_action` 兼容离散 int 与连续 3 维向量）。
+- 池子懒加载/常驻可选：`register(bundle)` 常驻，`get(id)` 取用时加载，显存/内存不够时可自行淘汰。
+- 训练产物 `main.py rl-train` 结束会自动导出到 `fz_agent/bundles/<run_name>`，直接可被别的训练任务当对手使用。
+
+### 4. 训练与利用流程
+```bash
+# 训练（按配置里的 algo / io 自动分派到离散/连续/off-policy/监督循环，结束后导出构建体）
+python -m fz_agent.main rl-train -c fz_agent/configs/ppo_combat.json
+python -m fz_agent.main rl-train -c fz_agent/configs/ddpg_combat.json
+python -m fz_agent.main dl-train -c fz_agent/configs/dl_regression.json
+
+# 利用（加载构建体或 config+weights 跑回合 / 跑预测）
+python -m fz_agent.main rl-exp   --bundle fz_agent/bundles/ppo_combat --episodes 3
+python -m fz_agent.main dl-exp   --model fz_agent/output/dl_models/dl_regression.pt --input data.npz --limit 5
+```
+
+### 5. 部署适配
+内置一个零依赖（Python 标准库 `http.server`）的多构建体推理服务，用于把构建体挂成 HTTP 接口：
+
+```bash
+python -m fz_agent.serve --bundle-dir fz_agent/bundles --host 0.0.0.0 --port 8765
+```
+```bash
+GET  /health                        # {"status":"ok","bundles":[...],"count":N}
+GET  /bundles                       # 构建体列表与各自的 io_spec
+POST /act                           # {"bundle_id":"ppo_v3","obs":[[...]]}
+POST /act  {"requests":[{...},{...}]}  # 批量，返回 {"responses":[...]}
+```
+对应关系：`/act` → `InferenceService.handle` → `ModelPool.predict` → `AgentBundle.predict`。要换成 FastAPI/gRPC 只需复写 `make_handler`；接真实 C++ 引擎时，实现 `CombatEnvProxy` 的 `reset/step/io_dict` 即可，训练侧代码无需改动。
+
 ## 日志
 2026.11.5 确定强化学习与深度学习分别实现的方案。
 2026.11.6 完成模拟环境的构建，实现DRL跑通有效果。
 2026.11.9 框架还有一些填充工作，比如所有强化学习算法实现细节的完成。后续是输入的向量化怎么做一下，自己调优即可，不暴露接口。TODO 训练策略还差些东西怎么给原上。
 2026.11.10 完成强化学习算法的json定义，后续是C++接口的实现、python环境部署。
-2026.11.11 TODO 之前隐隐有的问题，如何同时处理多个模型的接入？？？
+2026.11.11 TODO 之前隐隐有的问题，如何同时处理多个模型的接入？？？ → 已解决，见上节「多构建体同时接入」：用 AgentBundle 把「I/O 规格 + 网络结构配置 + 权重」打包，用 ModelPool 按 bundle_id 并发持有，SelfPlayEnv 动态换对手，serve.py 对外提供多模型推理接口。

@@ -1,11 +1,15 @@
 {
-  "_comment": "PPO + CombatEnv 示例。ActorCritic 网络，on-policy 训练。",
+  "_comment": "PPO + CombatEnv 示例。ActorCritic 网络，on-policy 训练。io 段显式声明输入输出契约。",
   "meta": {"name": "ppo_combat"},
   "env": {
     "type": "combat",
     "config": {"num_enemies": 3, "max_detected": 10, "max_episode_steps": 300},
     "action_space_type": "discrete",
-    "action_dim": 3
+    "action_dim": 3,
+    "io": {
+      "obs": {"shape": [10, 3], "dim": 3, "entity_set": true, "names": ["dx", "dy", "hp_ratio"]},
+      "action": {"space_type": "discrete", "dim": 3}
+    }
   },
   "networks": {
     "policy": {

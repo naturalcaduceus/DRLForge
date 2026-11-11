@@ -5,7 +5,11 @@
     "type": "combat",
     "config": {"num_enemies": 2, "max_detected": 8, "max_episode_steps": 300},
     "action_space_type": "discrete",
-    "action_dim": 3
+    "action_dim": 3,
+    "io": {
+      "obs": {"shape": [8, 3], "dim": 3, "entity_set": true, "names": ["dx", "dy", "hp_ratio"]},
+      "action": {"space_type": "discrete", "dim": 3}
+    }
   },
   "networks": {
     "policy": {
