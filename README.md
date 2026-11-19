@@ -182,6 +182,31 @@ POST /act  {"requests":[{...},{...}]}  # 批量，返回 {"responses":[...]}
 ```
 对应关系：`/act` → `InferenceService.handle` → `ModelPool.predict` → `AgentBundle.predict`。要换成 FastAPI/gRPC 只需复写 `make_handler`；接真实 C++ 引擎时，实现 `CombatEnvProxy` 的 `reset/step/io_dict` 即可，训练侧代码无需改动。
 
+### 6. 接入 chess-engine2（Windows 环境机 / WSL 训练）
+
+`fz_agent/env/ChessEnv.py` 的 `ChessRemoteEnv` 把 chess-engine2 的
+`tools.net_service` 当作 Gym 风格环境（`reset/step/set_opponent`），
+特征编码由环境服务统一完成（`envi/rl_adapter.py`），训练与部署共用一份：
+
+```bash
+# Windows：环境服务（蓝方脚本托管，监听给 WSL 访问）
+python -m tools.net_service --scenario scenarios/square_battle.json \
+    --host 0.0.0.0 --port 8000 --auto blue --max-actions 32 --obs-entities 12
+
+# WSL：训练（配置已内置，url 可用 DRL_CHESS_URL 覆盖）
+export DRL_CHESS_URL=http://<Windows宿主机IP>:8000
+python -m fz_agent.main rl-train -c fz_agent/configs/ppo_chess.json
+python -m fz_agent.main rl-train -c fz_agent/configs/dqn_chess.json
+
+# WSL：部署为推理服务；Windows：神经网络棋手人机对战
+python -m fz_agent.serve --bundle-dir fz_agent/bundles --host 0.0.0.0 --port 8765
+python -m tools.play --red human --blue neural --neural-url http://<WSL地址>:8765 --bundle ppo_chess
+```
+
+动作是 chess 的 `legal_actions` 下标（0=wait），越界自动回退 wait；
+每个训练/评估环境用独立 `sid` 会话，`set_opponent` 即自博弈通道。
+细节与 WSL↔Windows 网络配置见 `docs/chess_engine.md`。
+
 ## 日志
 2026.11.5 确定强化学习与深度学习分别实现的方案。
 2026.11.6 完成模拟环境的构建，实现DRL跑通有效果。

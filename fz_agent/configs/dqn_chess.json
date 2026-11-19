@@ -1,0 +1,42 @@
+{
+  "_comment": "DQN + chess-engine2。离线策略：经验回放 + target net，适合先低成本跑通采样链路。",
+  "meta": {"name": "dqn_chess"},
+  "env": {
+    "type": "chess_remote",
+    "url": "http://127.0.0.1:8000",
+    "config": {"side": "red", "max_entities": 12, "timeout": 15.0},
+    "action_space_type": "discrete",
+    "action_dim": 32,
+    "io": {
+      "obs": {
+        "shape": [12, 10],
+        "dim": 10,
+        "entity_set": true,
+        "names": ["dx", "dy", "hp_ratio", "atk_ratio", "armor",
+                  "move_ratio", "is_enemy", "is_self", "alive", "tick_ratio"],
+        "normalize": true
+      },
+      "action": {"space_type": "discrete", "dim": 32}
+    }
+  },
+  "networks": {
+    "q_net": {
+      "network_stack": [
+        {"type": "mlp", "config": {"in_dim": 10, "hidden_dims": [128, 128], "out_dim": 128, "activation": "ReLU"}}
+      ],
+      "head": "q"
+    }
+  },
+  "algo": {
+    "name": "dqn",
+    "config": {
+      "device": "cpu", "action_dim": 32,
+      "learning_rate": 5e-4, "gamma": 0.99, "tau": 0.005,
+      "epsilon_start": 1.0, "epsilon_end": 0.05, "epsilon_decay": 0.995, "batch_size": 64
+    }
+  },
+  "train": {
+    "seed": 42, "total_steps": 5000, "capacity": 20000,
+    "warmup_steps": 500, "eval_interval_steps": 1000
+  }
+}

@@ -297,8 +297,15 @@ class InferenceService:
 
     def _one(self, req: dict) -> dict:
         try:
+            bundle_id = req.get("bundle_id")
+            if not bundle_id:
+                ids = self.pool.ids()
+                if len(ids) != 1:
+                    raise KeyError("未指定 bundle_id，且已加载构建体不是唯一一个: %s"
+                                   % (ids or "（空）"))
+                bundle_id = ids[0]
             return self.predict(
-                req["bundle_id"],
+                bundle_id,
                 req["obs"],
                 deterministic=bool(req.get("deterministic", True)),
             )
@@ -306,4 +313,5 @@ class InferenceService:
             return {"bundle_id": req.get("bundle_id"), "error": str(e)}
 
     def list_models(self) -> dict:
-        return {"bundles": self.pool.ids(), "count": len(self.pool)}
+        io = {bid: self.pool.get(bid).io_spec for bid in self.pool.ids()}
+        return {"bundles": self.pool.ids(), "count": len(self.pool), "io": io}

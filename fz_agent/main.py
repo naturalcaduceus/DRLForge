@@ -82,11 +82,41 @@ def make_env(env_cfg: dict, seed: int = 42):
     env_type = env_cfg.get("type", "combat")
     io_cfg = env_cfg.get("io", {}) or {}
     action_cfg = io_cfg.get("action", {}) or {}
+    obs_cfg = io_cfg.get("obs", {}) or {}
     space_type = env_cfg.get("action_space_type", action_cfg.get("space_type", "discrete"))
     action_dim = env_cfg.get("action_dim", action_cfg.get("dim", 3))
 
+    if env_type in ("chess_remote", "chess", "chess_engine"):
+        from fz_agent.env.ChessEnv import ChessRemoteEnv
+
+        params = dict(env_cfg.get("config", {}))
+        params.setdefault("url", env_cfg.get("url") or os.environ.get("DRL_CHESS_URL")
+                          or "http://127.0.0.1:8000")
+        params.setdefault("side", env_cfg.get("side") or os.environ.get("DRL_CHESS_SIDE")
+                          or "red")
+        params.setdefault("auto_spec", env_cfg.get("auto_spec", True))
+        if action_cfg.get("dim"):
+            params.setdefault("max_actions", int(action_cfg["dim"]))
+        shape = list(obs_cfg.get("shape") or [])
+        if shape:
+            params.setdefault("max_entities", int(shape[0]))
+            params.setdefault("obs_dim", int(obs_cfg.get("dim") or shape[-1]))
+            params.setdefault("names", list(obs_cfg.get("names") or []))
+        params["seed"] = seed
+        env = ChessRemoteEnv(**params)
+        if io_cfg:
+            env.io_spec = IOSpec.from_dict(io_cfg)
+            if action_cfg.get("dim") and int(action_cfg["dim"]) != env.max_actions:
+                print(f"[make_env] 警告：io.action.dim={action_cfg['dim']} 与环境 "
+                      f"--max-actions={env.max_actions} 不一致")
+            if shape and [env.max_entities, env.obs_dim] != [int(v) for v in shape]:
+                print(f"[make_env] 警告：io.obs.shape={shape} 与环境 "
+                      f"[{env.max_entities}, {env.obs_dim}] 不一致")
+        return env
+
     if env_type not in ("combat", "combat_proxy"):
-        raise ValueError(f"未知 env type: {env_type}（当前内置 combat，真实引擎请实现 BaseEnv）")
+        raise ValueError(f"未知 env type: {env_type}（当前内置 combat / chess_remote，"
+                         f"真实引擎请实现 BaseEnv）")
 
     params = dict(env_cfg.get("config", {}))
     params.setdefault("num_enemies", 3)
@@ -134,7 +164,7 @@ def evaluate(env, agent, episodes=5):
                 break
         rewards.append(total)
         lengths.append(steps)
-        if result == "all_enemies_eliminated":
+        if result in ("all_enemies_eliminated", "win"):
             wins += 1
     return {
         "mean_reward": float(np.mean(rewards)) if rewards else 0.0,
