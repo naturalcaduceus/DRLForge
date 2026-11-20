@@ -28,8 +28,11 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# 涉及界面，改用相对路径，获取当前文件所在目录并添加到系统路径
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from fz_agent import studio
 from fz_agent.net_utils import candidate_hosts, probe, request_json
+
 
 ACT_OPTIONS = ["ReLU", "GELU", "SiLU", "Tanh", "Sigmoid", "LeakyReLU"]
 
@@ -143,6 +146,7 @@ class AgentStudio(tk.Tk):
                             command=self._on_paradigm).grid(row=1, column=1 + i, sticky="w")
 
         # ② 算法与超参
+        self.v_space = tk.StringVar(value="discrete")   #特意提前（因为会被用到，仅此参数提前初始化-cq20261120）
         ttk.Label(f, text="② 算法（11 种）", font=("", 11, "bold")).grid(row=row, column=0, sticky="w", pady=(8, 2))
         row += 1
         algo = ttk.LabelFrame(f)
@@ -210,7 +214,7 @@ class AgentStudio(tk.Tk):
         self.v_action_dim = tk.StringVar(value="32")
         self.v_max_entities = tk.StringVar(value="12")
         self.v_entity_set = tk.BooleanVar(value=True)
-        self.v_space = tk.StringVar(value="discrete")
+        # self.v_space = tk.StringVar(value="discrete")
         self.v_obs_names = tk.StringVar(value="dx,dy,hp_ratio,atk_ratio,armor,move_ratio,is_enemy,is_self,alive,tick_ratio")
         ttk.Label(io, text="观测特征维").grid(row=0, column=0, sticky="e", padx=4)
         ttk.Entry(io, textvariable=self.v_obs_dim, width=6).grid(row=0, column=1, sticky="w")
