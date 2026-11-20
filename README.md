@@ -41,7 +41,8 @@ fz_agent/
 ├── factory.py           # RLAssemblyFactory 总工厂
 ├── checkpoint.py        # save/load 带架构hash校验
 ├── api_demo.py          # 模拟后端接收JSON入口（可改成FastAPI接口）
-└── gui_json_builder.py      # 模拟前端拖拽生成JSON（可改成Vue.js等前端框架）基于tinker写的简单生成json界面
+├── gui_json_builder.py      # 网络积木 JSON 生成器（已合并进 gui_agent_studio.py）
+└── gui_agent_studio.py      # 一体化平台：智能体构建 + 智能体训练 + 模型/回放
 ```
 对应：
 深度学习网络
@@ -206,6 +207,36 @@ python -m tools.play --red human --blue neural --neural-url http://<WSL地址>:8
 动作是 chess 的 `legal_actions` 下标（0=wait），越界自动回退 wait；
 每个训练/评估环境用独立 `sid` 会话，`set_opponent` 即自博弈通道。
 细节与 WSL↔Windows 网络配置见 `docs/chess_engine.md`。
+
+### 7. 一体化 GUI（智能体构建 + 智能体训练）
+
+`python gui_agent_studio.py`（WSL 需 WSLg 才能显示窗口；Windows 可直接运行）。
+它合并了原 `gui_agent_platform.py`（构建体/训练管理）与 `gui_json_builder.py`
+（网络积木/JSON 生成），并且**不再是模拟**：训练是真实的 `fz_agent.main rl-train` 子进程。
+
+- **智能体构建**：预设（chess_ppo / chess_dqn / combat_ppo）、算法 11 种、网络积木 8 种
+  可堆叠、观测/动作契约、环境（chess 地址留空=自动探测）、训练参数、6 种演化训练策略；
+  静态校验 + dry-run 前向 + 结构签名，保存为 `fz_agent/configs/*.json`。
+- **智能体训练**：选配置 → 检测环境连通（无代理探测）→ 启动/停止训练 →
+  解析 `Epoch/step` 更新进度 → 训练曲线（读 `runs/*/csv`）→ 一键启动推理服务 → 打开产物目录。
+- **模型与回放**：bundles / runs 列表、`rl-exp` 单局推理、chess-engine2 `logs` 回放列表
+  （Windows 上用 `python -m tools.replay_viewer` 图形播放）。
+
+甲方要求对照：
+
+| 要求 | 实现 |
+|------|------|
+| 深度强化学习算法 ≥ 11 种 | `studio.ALGOS`：PPO/A2C/REINFORCE/DQN/DDQN/Dueling DQN/DDPG/TD3/SAC，另列 Rainbow/IQN（后端待补齐，界面标注并拦截） |
+| 基础神经模型 ≥ 8 种 | MLP / CNN / Conv1d / LSTM / GRU / SelfAttention / Transformer / ResNet |
+| 演化训练 6 种 | 迁移学习 / 对抗训练 / 增量持续 / 模型蒸馏 / 多任务联合 / 集成投票 |
+| 配置驱动、可导出复用 | GUI 产出的 JSON 直接交 `fz_agent.main`；训练产物 `fz_agent/bundles/<name>` |
+
+纯逻辑与测试（无界面也能验证）：
+
+```bash
+python -m fz_agent.studio                 # 三个预设的组装 + 静态校验
+python -m unittest tests.test_studio -v   # 配置组装/校验/dry-run/训练输出解析/曲线
+```
 
 ## 日志
 2026.11.5 确定强化学习与深度学习分别实现的方案。

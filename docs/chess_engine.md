@@ -15,8 +15,9 @@ python -m tools.net_service --scenario scenarios/square_battle.json \
     --host 0.0.0.0 --port 8000 --auto blue --max-actions 32 --obs-entities 12
 
 # WSL（训练机）
-export DRL_CHESS_URL=http://<Windows宿主机IP>:8000
+python -m fz_agent.net_utils --port 8000      # 自检：自动探测 Windows 主机（127→网关→resolv→$WIN_HOST）
 python -m fz_agent.main rl-train -c fz_agent/configs/ppo_chess.json
+# url 为空时 ChessEnv 自动探测；也可 export DRL_CHESS_URL=http://<IP>:8000 显式指定
 ```
 
 同机调试可直接用 `http://127.0.0.1:8000`；WSL 镜像网络下也可直接用回环。
@@ -74,7 +75,14 @@ python -m tools.play --red human --blue neural \
 `bundle_id` 省略时，服务里只有一个构建体就自动使用它。
 `GET /health` 额外返回每个构建体的 `io`，棋手据此对齐观测形状与动作维度。
 
-## 5. 冒烟检查
+## 5. 回放
+
+环境服务默认把每局写到 chess-engine2 的 `logs/runs/`（`--no-record` 关闭），
+`/rl/reset`、`/rl/step`、`/health` 的 `replay` 字段给出当前文件路径。
+训练端把它放进 `info["replay"]`，可用于离线分析；Windows 图形复盘用
+`python -m tools.replay_viewer --dir logs/runs`。
+
+## 6. 冒烟检查
 
 ```bash
 # 环境侧（不依赖 torch）

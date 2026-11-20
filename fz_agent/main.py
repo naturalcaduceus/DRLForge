@@ -90,8 +90,10 @@ def make_env(env_cfg: dict, seed: int = 42):
         from fz_agent.env.ChessEnv import ChessRemoteEnv
 
         params = dict(env_cfg.get("config", {}))
-        params.setdefault("url", env_cfg.get("url") or os.environ.get("DRL_CHESS_URL")
-                          or "http://127.0.0.1:8000")
+        # 环境变量优先：便于同一份配置在单机（127.0.0.1）与跨机（Windows IP）之间切换
+        params.setdefault("url", os.environ.get("DRL_CHESS_URL")
+                          or env_cfg.get("url") or None)
+        params.setdefault("port", env_cfg.get("port") or 8000)
         params.setdefault("side", env_cfg.get("side") or os.environ.get("DRL_CHESS_SIDE")
                           or "red")
         params.setdefault("auto_spec", env_cfg.get("auto_spec", True))

@@ -18,15 +18,14 @@
             "config": {"url": "http://172.20.0.1:8000", "side": "red",
                        "max_actions": 32, "max_entities": 12}}
 """
-import json
 import time
 import urllib.error
 import urllib.parse
-import urllib.request
 from typing import Callable, Optional
 
 import numpy as np
 
+from ..net_utils import request_json, resolve_host
 from .base import ActionSpec, BaseEnv, IOSpec, ObsSpec
 
 DEFAULT_OBS_FEATURES = ("dx", "dy", "hp_ratio", "atk_ratio", "armor",
@@ -40,11 +39,13 @@ class ChessRemoteError(RuntimeError):
 class ChessRemoteEnv(BaseEnv):
     """通过 HTTP 驱动的 chess-engine2 环境（Gymnasium 风格五元组 step）。"""
 
-    def __init__(self, url="http://127.0.0.1:8000", side="red", timeout=15.0,
+    def __init__(self, url=None, side="red", timeout=15.0,
                  max_actions=32, max_entities=12, obs_dim=None, names=None,
                  sid=None, seed=None, retries=2, retry_wait=0.2,
-                 auto_spec=True, max_ticks=None):
-        self.base_url = url.rstrip("/")
+                 auto_spec=True, max_ticks=None, port=8000):
+        # url 为空 / "auto" 时，首次请求再自动探测 Windows 主机（WSL2 NAT 网关会变）
+        self.port = int(port)
+        self.base_url = None if url in (None, "", "auto") else url.rstrip("/")
         self.side = side
         self.timeout = float(timeout)
         self.retries = max(0, int(retries))
@@ -102,35 +103,46 @@ class ChessRemoteEnv(BaseEnv):
         return self.io_spec.to_dict()
 
     # ---------- 传输 ----------
+    def _ensure_base(self):
+        """首次请求时自动探测 Windows 主机（127.0.0.1 → 网关 → resolv.conf → $WIN_HOST）。"""
+        if self.base_url:
+            return
+        host = resolve_host(self.port)
+        self.base_url = "http://%s:%d" % (host, self.port)
+        print("[chess_remote] 自动探测到环境服务: %s" % self.base_url)
+
     def _request(self, path, payload=None, method=None, params=None):
+        self._ensure_base()
         url = self.base_url + path
         if params:
             query = urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
             if query:
                 url += ("&" if "?" in url else "?") + query
-        data = None
-        if payload is not None:
-            data = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
-        method = method or ("POST" if data is not None else "GET")
         last = None
         for attempt in range(self.retries + 1):
             try:
-                req = urllib.request.Request(
-                    url, data=data, method=method,
-                    headers={"Content-Type": "application/json; charset=utf-8"})
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    body = json.loads(resp.read().decode("utf-8"))
+                body = request_json(url, payload, method=method, timeout=self.timeout)
                 if isinstance(body, dict) and body.get("ok") is False:
                     raise ChessRemoteError(body.get("error") or "环境返回失败")
                 return body
-            except (urllib.error.URLError, OSError, ValueError) as exc:
+            except (urllib.error.URLError, OSError, ValueError, RuntimeError) as exc:
                 last = exc
                 if attempt < self.retries and self.retry_wait > 0:
                     time.sleep(self.retry_wait)
         raise ChessRemoteError("chess-engine2 不可用（%s）：%s" % (url, last))
 
-    # ---------- 观测/动作 ----------
+    # ---------- 观测 / 动作 ----------
     def _to_obs(self, payload):
+        """观测 → 神经网络输入（[max_entities, obs_dim] 的 float32 矩阵）。
+
+        注意：真正的"状态 → 向量"编码发生在环境侧（chess-engine2 的
+        envi/rl_adapter.encode_observation），这里**不做任何特征计算**，
+        只做两件事：
+          1) 把 JSON 里的嵌套/扁平 list 转成 np.float32（CPU 训练可直接用）；
+          2) 若服务端以 flat 模式返回，按 max_entities × obs_dim 还原成矩阵。
+        保持"只搬运、不加工"是有意为之：训练与对战共用环境侧那一份编码，
+        避免两套实现悄悄漂移（例如归一化分母不一致）。
+        """
         rows = payload.get("obs")
         arr = np.asarray(rows if rows is not None else [], dtype=np.float32)
         if arr.ndim == 1 and arr.size == self.max_entities * self.obs_dim:
@@ -173,6 +185,17 @@ class ChessRemoteEnv(BaseEnv):
                      "done": bool(out.get("done")), "sides": list(self._sides)}
 
     def step(self, action):
+        """动作 → 环境请求（神经网络输出 → 行为 的训练侧入口）。
+
+        动作是"legal_actions 的下标"（离散）。这里做三件事：
+          1) 把 torch/np/标量统一成 int 下标（越界由环境侧回退 wait）；
+          2) 若挂了对手策略（自博弈），把对手动作一起放进 actions，
+             服务端会优先使用客户端给定的对手动作、不再走 --auto 脚本托管；
+          3) 把我的动作放在 actions[self.side]，POST 给 /rl/step，
+             返回编码后的下一帧观测、奖励、终止/截断标志。
+        真正的"下标 → 引擎指令"解码在环境侧 envi/rl_adapter.decode_action，
+        以确保训练与对战时用的是同一套解码规则。
+        """
         payload = {"sid": self.sid, "side": self.side}
         try:
             idx = int(np.asarray(action).reshape(-1)[0])
@@ -196,6 +219,8 @@ class ChessRemoteEnv(BaseEnv):
         info = dict(out.get("info") or {})
         info.update({
             "reward": {self.side: reward},
+            "replay": out.get("replay"),
+            "episode": out.get("episode"),
             "events": out.get("events") or [],
             "done": bool(out.get("done")),
             "winner": winner,
