@@ -305,7 +305,7 @@ class AgentStudio(tk.Tk):
         self._on_strategy()
 
         # ⑦ 深度学习范式（仅 dl 使用）
-        ttk.Label(f, text="⑦ 深度学习（范式=深度学习时使用）", font=("", 11, "bold")).grid(row=row, column=0, sticky="w", pady=(8, 2))
+        ttk.Label(f, text="⑦ 深度学习", font=("", 11, "bold")).grid(row=row, column=0, sticky="w", pady=(8, 2))
         row += 1
         dl = ttk.LabelFrame(f)
         dl.grid(row=row, column=0, sticky="ew", pady=2)
@@ -315,7 +315,7 @@ class AgentStudio(tk.Tk):
         self.v_dl_epochs = tk.StringVar(value="20")
         self.v_dl_lr = tk.StringVar(value="1e-3")
         self.v_dl_batch = tk.StringVar(value="64")
-        ttk.Label(dl, text="数据集(.npz)").grid(row=0, column=0, sticky="e", padx=4)
+        ttk.Label(dl, text="数据集").grid(row=0, column=0, sticky="e", padx=4)
         ttk.Entry(dl, textvariable=self.v_dl_path, width=40).grid(row=0, column=1, columnspan=3, sticky="w")
         ttk.Button(dl, text="选择…", command=self._pick_dl_data).grid(row=0, column=4, padx=4)
         ttk.Label(dl, text="任务").grid(row=1, column=0, sticky="e", padx=4)
